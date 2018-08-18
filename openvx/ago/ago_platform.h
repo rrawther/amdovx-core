@@ -49,6 +49,7 @@ THE SOFTWARE.
 #include <functional>
 #include <chrono>
 #include <thread>
+#include <dirent.h>
 using namespace std;
 
 #if _WIN32

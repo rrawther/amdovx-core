@@ -180,15 +180,15 @@ enum vx_tensor_attribute_amd_e {
 * \ingroup group_directive
 */
 enum vx_directive_amd_e {
-	/*! \brief data object is readonly after this directive is given. */
-	VX_DIRECTIVE_AMD_READ_ONLY      = VX_ENUM_BASE(VX_ID_AMD, VX_ENUM_DIRECTIVE) + 0x01,
-	/*! \brief data object copy to OpenCL. */
-	VX_DIRECTIVE_AMD_COPY_TO_OPENCL = VX_ENUM_BASE(VX_ID_AMD, VX_ENUM_DIRECTIVE) + 0x02,
-	/*! \brief collect performance profile capture. */
-	VX_DIRECTIVE_AMD_ENABLE_PROFILE_CAPTURE  = VX_ENUM_BASE(VX_ID_AMD, VX_ENUM_DIRECTIVE) + 0x03,
-	VX_DIRECTIVE_AMD_DISABLE_PROFILE_CAPTURE = VX_ENUM_BASE(VX_ID_AMD, VX_ENUM_DIRECTIVE) + 0x04,
-	/*! \brief disable node level flush for a graph. */
-	VX_DIRECTIVE_AMD_DISABLE_OPENCL_FLUSH    = VX_ENUM_BASE(VX_ID_AMD, VX_ENUM_DIRECTIVE) + 0x05,
+        /*! \brief data object is readonly after this directive is given. */
+        VX_DIRECTIVE_AMD_READ_ONLY      = VX_ENUM_BASE(VX_ID_AMD, VX_ENUM_DIRECTIVE) + 0x01,
+        /*! \brief data object copy to OpenCL. */
+        VX_DIRECTIVE_AMD_COPY_TO_OPENCL = VX_ENUM_BASE(VX_ID_AMD, VX_ENUM_DIRECTIVE) + 0x02,
+        /*! \brief collect performance profile capture. */
+        VX_DIRECTIVE_AMD_ENABLE_PROFILE_CAPTURE  = VX_ENUM_BASE(VX_ID_AMD, VX_ENUM_DIRECTIVE) + 0x03,
+        VX_DIRECTIVE_AMD_DISABLE_PROFILE_CAPTURE = VX_ENUM_BASE(VX_ID_AMD, VX_ENUM_DIRECTIVE) + 0x04,
+        /*! \brief disable node level flush for a graph. */
+        VX_DIRECTIVE_AMD_DISABLE_OPENCL_FLUSH    = VX_ENUM_BASE(VX_ID_AMD, VX_ENUM_DIRECTIVE) + 0x05,
 };
 
 /*! \brief An enumeration of additional memory type imports.
@@ -217,6 +217,37 @@ enum vx_df_image_amd_e {
 	VX_DF_IMAGE_F64_AMD   = VX_DF_IMAGE('F', '0', '6', '4'),  // AGO image with 64-bit floating-point (double)
 	VX_DF_IMAGE_F32x3_AMD = VX_DF_IMAGE('F', '3', '3', '2'),  // AGO image with THREE 32-bit floating-point channels in one buffer
 };
+
+/*! \brief import kernel extension URL type (amd specific, to be used for implementation).
+*/
+        //"vx_ik_urltype_amd_file",     // Import Kernel URL has to be interpreted as file
+        //"vx_ik_urltype_amd_folder",   // Import Kernel URL has to be interpreted as folder
+        //"vx_ik_urltype_amd_label",    // Import Kernel URL has to be interpreted as label
+        //"vx_ik_urltype_amd_pointer",  // Import Kernel URL has to be interpreted as pointer
+
+/*!
+* \brief The type of the <tt>vxInitialize_nn_kernel_f</tt> entry function for import kernel extension
+*/
+typedef void * nn_ik_handle;
+typedef nn_ik_handle(VX_API_CALL *initialize_nn_amd_kernel_f)(void *inp_tensor, void *out_tensor, const vx_char* weights_file);
+typedef int(VX_API_CALL *process_nn_amd_kernel_f)(nn_ik_handle hdl, void *inp_tensor, void *out_tensor);
+typedef int(VX_API_CALL *unitialize_nn_amd_kernel_f)(nn_ik_handle hdl);
+
+typedef struct {
+    nn_ik_handle nn_handle;
+    initialize_nn_amd_kernel_f  initialize_kernel_f;
+    process_nn_amd_kernel_f     process_kernel_f;
+    unitialize_nn_amd_kernel_f  uinitialize_kernel_f;
+    std::string vendor_data_filename;
+} VendorKernelLocalData ;
+
+enum import_kernel_e
+{
+   VX_KERNEL_NN_SINGLE_KERNEL_AMD           = VX_KERNEL_BASE(VX_ID_AMD, 1/*NN_EXTENSION_LIBRARY*/) + 0x00b,
+
+};
+
+
 
 /*! \brief The multidimensional data object (Tensor).
 * \see vxCreateTensor
@@ -543,6 +574,7 @@ VX_API_ENTRY vx_status VX_API_CALL vxSetContextImageFormatDescription(vx_context
 * \retval VX_ERROR_INVALID_FORMAT if format is already in use.
 */
 VX_API_ENTRY vx_status VX_API_CALL vxGetContextImageFormatDescription(vx_context context, vx_df_image format, AgoImageFormatDescription * desc);
+
 
 /* Tensor */
 VX_API_ENTRY vx_tensor VX_API_CALL vxCreateTensorFromHandle(vx_context context, vx_size number_of_dims, const vx_size * dims, vx_enum data_type, vx_int8 fixed_point_position, const vx_size * stride, void * ptr, vx_enum memory_type);

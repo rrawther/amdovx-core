@@ -7676,7 +7676,7 @@ VX_API_ENTRY vx_status VX_API_CALL vxAliasTensor(vx_tensor tensorMaster, vx_size
 		data->alias_offset = offset;
 		status = VX_SUCCESS;
 	}
-	return status;
+    return status;
 }
 
 VX_API_ENTRY vx_bool VX_API_CALL vxIsTensorAliased(vx_tensor tensorMaster, vx_size offset, vx_tensor tensor)
@@ -7691,5 +7691,194 @@ VX_API_ENTRY vx_bool VX_API_CALL vxIsTensorAliased(vx_tensor tensorMaster, vx_si
 	{
 		status = vx_true_e;
 	}
-	return status;
+    return status;
 }
+
+/*! \brief imports an OpenVX kernel from a URL of type specified.\n
+ *
+ * \details Imports a vendor defined kernel into the OpenVX context from a vendor defined binary URL.
+ * the kernel functions and dependancies has to be fully contained in the binary URL.
+ * an implementation may provide several error codes in case of failure to give useful diagonostic information.
+ * \param [in] context to which to import kernel, must be valid [*REQ*].
+ * \param [in] type vendor-specific identifier that indicated to the implementation how to interpret the url [*REQ*].
+ * \param [in] url URL to binary container[*REQ*]
+ * \param [out] a valid vx_kernel object. On error this is set to NULL[*REQ*].
+ */
+
+//! \brief The macro for error checking from OpenVX object.
+#define ERROR_CHECK_STATUS(call) { vx_status status = (call); if(status != VX_SUCCESS){ agoAddLogEntry(NULL, status, "ERROR: failed with status = (%d) at " __FILE__ "#%d\n", status, __LINE__); return status; }}
+
+
+static vx_status VX_CALLBACK import_kernel_validator(vx_node node, const vx_reference parameters[], vx_uint32 num, vx_meta_format metas[])
+{
+    vx_size num_dims;
+    vx_enum type;
+    vx_status status = VX_ERROR_INVALID_PARAMETERS;
+    vx_tensor InpTensor = (vx_tensor)parameters[0];
+    if (vxQueryTensor(InpTensor, VX_TENSOR_NUMBER_OF_DIMS, &num_dims, sizeof(num_dims)))
+        return status;
+    if (vxQueryTensor(InpTensor, VX_TENSOR_DATA_TYPE, &type, sizeof(type)))
+        return status;
+    if (num_dims != 4) {
+        agoAddLogEntry(&node->ref, VX_ERROR_INVALID_DIMENSION, "ERROR: validate: import_kernel: input num_dims=%ld (must be 4)\n", num_dims);
+        return VX_ERROR_INVALID_DIMENSION;
+    }
+    if (type != VX_TYPE_FLOAT32) {
+        agoAddLogEntry(&node->ref, VX_ERROR_INVALID_TYPE, "ERROR validate: import_kernel: input tensor type=%d (not float)\n", type);
+        return VX_ERROR_INVALID_DIMENSION;
+    }
+
+    vx_tensor OutTensor = (vx_tensor)parameters[1];
+    vxQueryTensor(OutTensor, VX_TENSOR_NUMBER_OF_DIMS, &num_dims, sizeof(num_dims));
+    vxQueryTensor(OutTensor, VX_TENSOR_DATA_TYPE, &type, sizeof(type));
+    vx_size output_dims[4];
+    status = vxQueryTensor(OutTensor, VX_TENSOR_DIMS, output_dims, sizeof(output_dims));
+
+    if (num_dims != 4)
+        status = VX_ERROR_INVALID_DIMENSION;
+    if (type != VX_TYPE_FLOAT32)
+        status = VX_ERROR_INVALID_TYPE;
+    else if ((output_dims[0] < 0) || (output_dims[1] < 0) || (output_dims[2] < 0) || (output_dims[2] < 0) )
+        status = VX_ERROR_INVALID_DIMENSION;
+    else
+        status = VX_SUCCESS;
+    type = VX_TYPE_FLOAT32;
+    num_dims = 4;
+    ERROR_CHECK_STATUS(vxSetMetaFormatAttribute(metas[4], VX_TENSOR_DATA_TYPE, &type, sizeof(type)));
+    ERROR_CHECK_STATUS(vxSetMetaFormatAttribute(metas[4], VX_TENSOR_NUMBER_OF_DIMS, &num_dims, sizeof(num_dims)));
+    ERROR_CHECK_STATUS(vxSetMetaFormatAttribute(metas[4], VX_TENSOR_DIMS, output_dims, sizeof(output_dims)));
+
+    return status;
+}
+
+static vx_status VX_CALLBACK process_import_kernel(vx_node node, const vx_reference * parameters, vx_uint32 num)
+{
+    VendorKernelLocalData * data = NULL;
+    if (vxQueryNode(node, VX_NODE_LOCAL_DATA_PTR, &data, sizeof(data)))
+        return VX_FAILURE;
+    if (data->process_kernel_f(data->nn_handle, (void*)parameters[0], (void*)parameters[1]))
+        return VX_FAILURE;
+
+    return VX_SUCCESS;
+}
+
+static vx_status VX_CALLBACK import_kernel_initialize(vx_node node, const vx_reference *parameters, vx_uint32 num)
+{
+    VendorKernelLocalData *data;
+    ERROR_CHECK_STATUS(vxQueryNode(node, VX_NODE_LOCAL_DATA_PTR, &data, sizeof(data)));
+    // call initialize of the
+    data->nn_handle = data->initialize_kernel_f((void*)parameters[0], (void*)parameters[1], data->vendor_data_filename.c_str());
+    if(data->nn_handle == NULL) {
+        return VX_ERROR_INVALID_MODULE;
+    }
+    return VX_SUCCESS;
+}
+
+static vx_status VX_CALLBACK import_kernel_uninitialize(vx_node node, const vx_reference *parameters, vx_uint32 num)
+{
+    VendorKernelLocalData *data;
+    if(vxQueryNode(node, VX_NODE_LOCAL_DATA_PTR, &data, sizeof(data)))
+        return VX_ERROR_INVALID_PARAMETERS;
+    if(data->uinitialize_kernel_f(data->nn_handle))
+        return VX_ERROR_INVALID_MODULE;
+    return VX_SUCCESS;
+}
+
+
+VX_API_ENTRY vx_kernel VX_API_CALL vxImportKernelFromURL(vx_context context, const vx_char * type, const vx_char * url)
+{
+    vx_status status;
+    vx_kernel nn_kernel = NULL;
+    if (agoIsValidContext(context) && url && (!strcmp(type, "vx_ik_urltype_amd_file") || !strcmp(type, "vx_ik_urltype_amd_folder") || !strcmp(type, "vx_ik_urltype_amd_label") || !strcmp(type, "vx_ik_urltype_amd_pointer"))) {
+        if (!strcmp(type, "vx_ik_urltype_amd_folder"))
+        {
+            // find the module file with SHARED_LIBRARY_EXTENSION in the URL folder
+            char  *moduleFileName;
+            char *data_file_name;
+            DIR *dir = opendir(url);
+            if(!dir) {
+                agoAddLogEntry(&context->ref, VX_ERROR_INVALID_PARAMETERS, "ERROR: vxImportKernelFromURL: error opening url %s\n", url);
+                return nn_kernel;
+            }
+            dirent *entry;
+            auto hasSuffix = [=](const std::string& s, const std::string& suffix) -> bool {
+                return (s.size() >= suffix.size()) && equal(suffix.rbegin(), suffix.rend(), s.rbegin());
+            };
+            while((entry = readdir(dir))!= NULL)
+            {
+                if (hasSuffix(entry->d_name, SHARED_LIBRARY_EXTENSION)) {
+                    moduleFileName = entry->d_name;
+                }
+                if (hasSuffix(entry->d_name, ".bin")) {
+                    data_file_name = entry->d_name;
+                }
+            }
+            closedir(dir);
+            if (moduleFileName == NULL) {
+                agoAddLogEntry(&context->ref, VX_ERROR_INVALID_MODULE, "ERROR: vxImportKernelFromURL: error finding import module with extension %s\n", SHARED_LIBRARY_EXTENSION);
+                return nn_kernel;
+            }
+            // load module from URL path
+            std::string moduleName = std::string(url) + "/" + std::string(moduleFileName);
+            ago_module hmodule = agoOpenModule(moduleName.c_str());
+            if (hmodule == NULL) {
+                agoAddLogEntry(&context->ref, VX_ERROR_INVALID_MODULE, "ERROR: Unable to load module %s\n", moduleName);
+                return nn_kernel;
+            } else {
+                    nn_kernel = vxAddUserKernel(context, "com.amd.nn_extension.single_kernel",
+                    VX_KERNEL_NN_SINGLE_KERNEL_AMD,
+                    process_import_kernel,
+                    2,
+                    import_kernel_validator,
+                    import_kernel_initialize,
+                    import_kernel_uninitialize);
+                if (nn_kernel == NULL)
+                {
+                    agoAddLogEntry(&nn_kernel->ref, VX_FAILURE, "ERROR: Kernel Import failed with status(%d)\n", vxGetStatus(&nn_kernel->ref));
+                    return NULL;
+                }
+                // set kernel parameters
+                status = vxAddParameterToKernel(nn_kernel, 0, VX_INPUT, VX_TYPE_TENSOR, VX_PARAMETER_STATE_REQUIRED);
+                status |= vxAddParameterToKernel(nn_kernel, 1, VX_OUTPUT, VX_TYPE_TENSOR, VX_PARAMETER_STATE_REQUIRED);
+                // finalize and release kernel object
+                status |= vxFinalizeKernel(nn_kernel);
+                if (status == VX_SUCCESS) {
+                    agoAddLogEntry(&nn_kernel->ref, VX_SUCCESS, "OK: loaded kernel from vendor binary %s\n", url);
+                }
+                else {
+                    agoAddLogEntry(&nn_kernel->ref, VX_FAILURE, "ERROR: publishVendorKernel failed (%d:%s)\n", vxGetStatus(&nn_kernel->ref), agoEnum2Name(status));
+                    return NULL;
+                }
+                vxReleaseKernel(&nn_kernel);
+
+                vx_size local_data_size;
+                status = vxQueryKernel(nn_kernel, VX_KERNEL_ATTRIBUTE_LOCAL_DATA_SIZE, &local_data_size, sizeof(local_data_size));
+                if (status != VX_SUCCESS || local_data_size==0) {
+                    agoAddLogEntry(&context->ref, VX_FAILURE, "ERROR: kernel object has no local data storage\n");
+                    return NULL;
+                }
+                VendorKernelLocalData * data = new VendorKernelLocalData;
+                memset(data, 0, sizeof(*data));
+                data->initialize_kernel_f   = (initialize_nn_amd_kernel_f)agoGetFunctionAddress(hmodule, "InitializeKernel");
+                data->process_kernel_f      = (process_nn_amd_kernel_f) agoGetFunctionAddress(hmodule, "ProcessKernel");
+                data->uinitialize_kernel_f  = (unitialize_nn_amd_kernel_f) agoGetFunctionAddress(hmodule, "UninitializeKernel");
+                data->vendor_data_filename  = std::string(data_file_name);
+                void *kernel_local_data;
+                status = vxQueryKernel(nn_kernel, VX_KERNEL_ATTRIBUTE_LOCAL_DATA_PTR, &kernel_local_data, sizeof(kernel_local_data));
+                // copy vendor local data to kernel local data
+                if (local_data_size >= sizeof(VendorKernelLocalData))
+                    memcpy(kernel_local_data, (void*)data, sizeof(VendorKernelLocalData));
+                else
+                {
+                    agoAddLogEntry(&context->ref, VX_FAILURE, "ERROR: kernel object has not enough local data size\n");
+                    return NULL;
+                }
+
+            }
+        }else {
+            agoAddLogEntry(&context->ref, VX_FAILURE, "ERROR: url_type %s is not yet supported\n", type);
+        }
+    }
+    return nn_kernel;
+}
+

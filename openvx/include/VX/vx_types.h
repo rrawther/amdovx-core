@@ -591,7 +591,7 @@ enum vx_enum_e {
 /* IX extension
     VX_ENUM_IX_USE          = 0x1F, !< \brief How to use references in import and export. */
     VX_ENUM_SCALAR_OPERATION= 0X20  /*!< \brief Scalar operation list. */
-	};
+};
 
 /*! \brief A return code enumeration from a <tt>\ref vx_nodecomplete_f</tt> during execution.
  * \see <tt>vxAssignNodeCallback</tt>
